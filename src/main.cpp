@@ -27,6 +27,64 @@ int batteryRaw = 0;
 unsigned long lastRead = 0;
 unsigned long setupFinished = 0;
 
+void respondJson(int code, const JsonDocument& json);
+void mqttCb(char* topic, byte* payload, unsigned int length);
+bool connectMQTT();
+void publishWDiscovery(String subtopic, String deviceClass, String unit, double value);
+void publishMQTT();
+long readAnalog();
+long getBattery();
+int getBatteryPercent(long mapped);
+void readSensor();
+void readBattery();
+void handleSerial();
+void setupSensors();
+void setupOTA();
+void connectWifi();
+void setupHttp();
+
+void setup() {
+  Serial.begin(115200);
+  delay(10);
+  Serial.println("\n\nInit ...");
+
+  config.begin();
+  setupSensors();
+  readBattery();
+  Serial.println("Battery raw reading: " + String(batteryRaw));
+  connectWifi();
+  setupOTA();
+  if (config.mode == MODE_CONFIG) {
+    setupHttp();
+  }
+  mqtt.setBufferSize(512);
+  mqtt.setSocketTimeout(2);
+
+  readSensor();
+  while (!connectMQTT()) yield();
+  if (config.mode & MODE_MQTT) {
+    publishMQTT();
+  }
+  setupFinished = millis();
+}
+
+void loop() {
+  ArduinoOTA.handle();
+  if (config.mode == MODE_CONFIG)
+  {
+    handleSerial();
+    server.handleClient();
+  }
+  mqtt.loop();
+  delay(5);
+
+  if (config.mode != MODE_CONFIG && (millis() - setupFinished) >= RUNTIME_ms)
+  {
+    Serial.println("Reached idle, sleeping for " + String(config.sleepSeconds) + "s.");
+    ESP.deepSleep(config.sleepSeconds * uS_TO_S_FACTOR, RF_DISABLED);
+  }
+}
+
 void respondJson(int code, const JsonDocument& json)
 {
   String jsonStr;
@@ -279,44 +337,3 @@ void setupHttp()
   server.begin();
 }
 
-void setup() {
-  Serial.begin(115200);
-  delay(10);
-  Serial.println("\n\nInit ...");
-
-  config.begin();
-  setupSensors();
-  readBattery();
-  Serial.println("Battery raw reading: " + String(batteryRaw));
-  connectWifi();
-  setupOTA();
-  if (config.mode == MODE_CONFIG) {
-    setupHttp();
-  }
-  mqtt.setBufferSize(512);
-  mqtt.setSocketTimeout(2);
-
-  readSensor();
-  while (!connectMQTT()) yield();
-  if (config.mode & MODE_MQTT) {
-    publishMQTT();
-  }
-  setupFinished = millis();
-}
-
-void loop() {
-  ArduinoOTA.handle();
-  if (config.mode == MODE_CONFIG)
-  {
-    handleSerial();
-    server.handleClient();
-  }
-  mqtt.loop();
-  delay(5);
-
-  if (config.mode != MODE_CONFIG && (millis() - setupFinished) >= RUNTIME_ms)
-  {
-    Serial.println("Reached idle, sleeping for " + String(config.sleepSeconds) + "s.");
-    ESP.deepSleep(config.sleepSeconds * uS_TO_S_FACTOR, RF_DISABLED);
-  }
-}
